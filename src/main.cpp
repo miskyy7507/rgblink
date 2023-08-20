@@ -203,14 +203,16 @@ void loop() {
         return;
     }
 
-    if (!(rgbStrip.isOn()) && (lastReceivedCommandRepeatCount == 0)) {
-        switch (lastReceivedCommand) {
-        case REMOTE_POWER:
-            rgbStrip.powerToggle();
-            break;
-        case REMOTE_FADE7: // swap color channels with FADE7 button when off
-            rgbStrip.swapColors();
-            break;
+    if (!(rgbStrip.isOn())) {
+        if (lastReceivedCommandRepeatCount == 0) {
+            switch (lastReceivedCommand) {
+            case REMOTE_POWER:
+                rgbStrip.powerToggle();
+                break;
+            case REMOTE_FADE7: // swap color channels with FADE7 button when off
+                rgbStrip.swapColors();
+                break;
+            }
         }
         lastReceivedCommandDone = true;
         return;
