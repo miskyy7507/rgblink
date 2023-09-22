@@ -1,7 +1,5 @@
 #include <Arduino.h>
 
-#include "Adafruit_NeoPixel.h"
-
 #define NO_LED_FEEDBACK_CODE
 #define IR_RECEIVE_PIN 2
 #include "TinyIRReceiver.hpp"
@@ -10,6 +8,9 @@
 
 #include "remoteButtonsCodes.h"
 #include "predefinedColors.h"
+
+#include "AnimationEngine.h"
+#include "animations.h"
 
 #define R_PIN 9
 #define G_PIN 11
@@ -20,26 +21,21 @@ uint8_t lastReceivedCommand;
 bool lastReceivedCommandDone = true;
 uint16_t lastReceivedCommandRepeatCount;
 uint32_t lastReceivedCommandTimestamp;
+
 int8_t diyColorIndex = -1;
 RGBColor diyColors[6] = {};
-const int8_t animationMillisDur = 5; // 200 FPS
-enum AnimationMode {jump3, jump7, fade3, fade7, flash, automatic, none = -1};
-AnimationMode currentAnimationMode = none;
-uint32_t lastAnimationFrameTimestamp;
-uint16_t lastAnimationFrameIndex;
-uint16_t animationSpeed = 128;
-uint16_t fade7Hue = 0;
-bool isAnimationPaused = false;
+
+AnimationEngine animate(rgbStrip);
 
 void setPredefinedColor(uint32_t newColor) {
-    currentAnimationMode = none;
+    animate.stop();
     diyColorIndex = -1;
     rgbStrip.setRGB(newColor);
     rgbStrip.updateColor();
 }
 
 void setDiyColor(int8_t index) {
-    currentAnimationMode = none;
+    animate.stop();
     if (diyColorIndex == index) { // save the diy color
         diyColors[diyColorIndex] = rgbStrip.getRGBColor();
     } else {
@@ -88,84 +84,6 @@ void controlDiyColor(uint8_t command, uint16_t commandRepeatCount) {
     }
 }
 
-void jump3Animation() {
-    currentAnimationMode = jump3;
-    uint32_t animationColors[] = {COLOR_RED, COLOR_GREEN, COLOR_BLUE};
-    while (lastReceivedCommandDone) {
-        if (((millis() - lastAnimationFrameTimestamp) < animationMillisDur * animationSpeed) || isAnimationPaused) {
-            continue;
-        }
-        rgbStrip.setRGB(animationColors[lastAnimationFrameIndex]);
-        rgbStrip.updateColor();
-        lastAnimationFrameTimestamp = millis();
-        lastAnimationFrameIndex = (lastAnimationFrameIndex + 1) % 3;
-    }
-}
-
-void jump7Animation() {
-    currentAnimationMode = jump7;
-    uint32_t animationColors[] = {COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW, COLOR_PURPLE, COLOR_CYAN, COLOR_WHITE};
-
-    while (lastReceivedCommandDone) {
-        if (((millis() - lastAnimationFrameTimestamp) < animationMillisDur * animationSpeed) || isAnimationPaused) {
-            continue;
-        }
-        rgbStrip.setRGB(animationColors[lastAnimationFrameIndex]);
-        rgbStrip.updateColor();
-        lastAnimationFrameTimestamp = millis();
-        lastAnimationFrameIndex = (lastAnimationFrameIndex + 1) % 7;
-    }
-}
-
-void fade3Animation() {
-    currentAnimationMode = fade3;
-
-    while (lastReceivedCommandDone) {
-        if (((millis() - lastAnimationFrameTimestamp) < animationMillisDur * animationSpeed) || isAnimationPaused) {
-            continue;
-        }
-        rgbStrip.setRGB(COLOR_BLACK);
-        if (lastAnimationFrameIndex < 256) {
-            rgbStrip.setRed(Adafruit_NeoPixel::sine8(lastAnimationFrameIndex + 192));
-        } else if (lastAnimationFrameIndex < 512) {
-            rgbStrip.setGreen(Adafruit_NeoPixel::sine8(lastAnimationFrameIndex + 192));
-        } else {
-            rgbStrip.setBlue(Adafruit_NeoPixel::sine8(lastAnimationFrameIndex + 192));
-        }
-        rgbStrip.updateColor();
-        lastAnimationFrameTimestamp = millis();
-        lastAnimationFrameIndex = (lastAnimationFrameIndex + 1) % 768;
-    }
-}
-
-void fade7Animation() {
-    currentAnimationMode = fade7;
-    while (lastReceivedCommandDone) {
-        if (((millis() - lastAnimationFrameTimestamp) < animationMillisDur) || isAnimationPaused) {
-            continue;
-        }
-        rgbStrip.setRGB(Adafruit_NeoPixel::gamma32(Adafruit_NeoPixel::ColorHSV(fade7Hue)));
-        rgbStrip.updateColor();
-        lastAnimationFrameTimestamp = millis();
-        fade7Hue += animationSpeed;
-    }
-}
-
-void flashAnimation() {
-    currentAnimationMode = flash;
-    uint32_t animationColors[] = {COLOR_WHITE, COLOR_BLACK};
-
-    while (lastReceivedCommandDone) {
-        if (((millis() - lastAnimationFrameTimestamp) < animationMillisDur * animationSpeed) || isAnimationPaused) {
-            continue;
-        }
-        rgbStrip.setRGB(animationColors[lastAnimationFrameIndex]);
-        rgbStrip.updateColor();
-        lastAnimationFrameTimestamp = millis();
-        lastAnimationFrameIndex = (lastAnimationFrameIndex + 1) % 2;
-    }
-}
-
 void setup() {
     // turn off built-in led
     pinMode(LED_BUILTIN, OUTPUT);
@@ -177,37 +95,18 @@ void setup() {
 }
 
 void loop() {
-    if (rgbStrip.isOn()) {
-        switch (currentAnimationMode) {
-        case jump3:
-            jump3Animation();
-            break;
-        case jump7:
-            jump7Animation();
-            break;
-        case flash:
-            flashAnimation();
-            break;
-        case fade3:
-            fade3Animation();
-            break;
-        case fade7:
-            fade7Animation();
-            break;
-        case none:
-            break;
-        }
-    }
+    animate.loop(millis());
 
     if (lastReceivedCommandDone) {
         return;
     }
 
-    if (!(rgbStrip.isOn())) {
+    if (!rgbStrip.isOn()) {
         if (lastReceivedCommandRepeatCount == 0) {
             switch (lastReceivedCommand) {
             case REMOTE_POWER:
                 rgbStrip.powerToggle();
+                animate.play();
                 break;
             case REMOTE_FADE7: // swap color channels with FADE7 button when off
                 rgbStrip.swapColors();
@@ -222,18 +121,18 @@ void loop() {
 
     switch (lastReceivedCommand) {
     int16_t newBrightness;
-    int16_t newAnimationSpeed;
 
     case REMOTE_POWER:
         if (lastReceivedCommandRepeatCount == 0) {
             rgbStrip.powerToggle();
+            animate.pause();
         }
         break;
     case REMOTE_PLAY_PAUSE:
-        if (currentAnimationMode != none) {
-            isAnimationPaused = !isAnimationPaused;
+        if (lastReceivedCommandRepeatCount == 0) {
+            animate.toggle();
         }
-
+        break;
     case REMOTE_BRIGHTNESS_UP:
         newBrightness = (rgbStrip.getBrightness() + ((lastReceivedCommandRepeatCount > 5) ? 8 : 1));
         rgbStrip.setBrightness(newBrightness > 255 ? 255 : newBrightness);
@@ -351,53 +250,32 @@ void loop() {
         break;
 
     case REMOTE_JUMP3:
-        currentAnimationMode = jump3;
-        isAnimationPaused = false;
-        lastAnimationFrameTimestamp = 0;
-        lastAnimationFrameIndex = 0;
-        jump3Animation();
+        diyColorIndex = -1;
+        animate.start(jump3Animation);
         break;
     case REMOTE_JUMP7:
-        currentAnimationMode = jump7;
-        isAnimationPaused = false;
-        lastAnimationFrameTimestamp = 0;
-        lastAnimationFrameIndex = 0;
-        jump7Animation();
+        diyColorIndex = -1;
+        animate.start(jump7Animation);
         break;
     case REMOTE_FADE3:
-        currentAnimationMode = fade3;
-        isAnimationPaused = false;
-        lastAnimationFrameTimestamp = 0;
-        lastAnimationFrameIndex = 0;
-        fade3Animation();
+        diyColorIndex = -1;
+        animate.start(fade3Animation);
         break;
     case REMOTE_FADE7:
-        currentAnimationMode = fade7;
-        isAnimationPaused = false;
-        lastAnimationFrameTimestamp = 0;
-        fade7Hue = 0;
-        fade7Animation();
+        diyColorIndex = -1;
+        animate.start(fade7Animation);
         break;
     case REMOTE_FLASH:
-        currentAnimationMode = flash;
-        isAnimationPaused = false;
-        lastAnimationFrameTimestamp = 0;
-        lastAnimationFrameIndex = 0;
-        flashAnimation();
+        diyColorIndex = -1;
+        animate.start(flashAnimation);
         break;
     // case REMOTE_AUTO: // TODO
 
     case REMOTE_QUICK:
-        if (currentAnimationMode != none) {
-            newAnimationSpeed = (animationSpeed + ((lastReceivedCommandRepeatCount > 5) ? 8 : 1));
-            animationSpeed = (newAnimationSpeed > 1024 ? 1024 : newAnimationSpeed);
-        }
+        animate.speedUp();
         break;
     case REMOTE_SLOW:
-        if (currentAnimationMode != none) {
-            newAnimationSpeed = (animationSpeed - ((lastReceivedCommandRepeatCount > 5) ? 8 : 1));
-            animationSpeed = (newAnimationSpeed < 1 ? 1 : newAnimationSpeed);
-        }
+        animate.slowDown();
         break;
     }
 }
