@@ -34,7 +34,7 @@ RGBColor jump7Animation(uint32_t timeframe) {
     colorFrames[3].rgb32 = COLOR_YELLOW;
     colorFrames[4].rgb32 = COLOR_CYAN;
     colorFrames[5].rgb32 = COLOR_MAGENTA;
-    colorFrames[6].rgb32 = COLOR_BLACK;
+    colorFrames[6].rgb32 = COLOR_WHITE;
 
     timeframe = timeframe % (750 * 7) / 750;
 
